@@ -20,14 +20,158 @@ void main() async {
     ),
   );
 
-  if (FirebaseAuth.instance.currentUser == null) {
-    await FirebaseAuth.instance.signInAnonymously();
-  }
-
   runApp(const MaterialApp(
     debugShowCheckedModeBanner: false,
-    home: HolidayMemoPage(),
+    home: AuthGate(),
   ));
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        if (snapshot.hasData) {
+          return const HolidayMemoPage();
+        }
+        return const LoginPage();
+      },
+    );
+  }
+}
+
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+  bool isLoginMode = true;
+  bool isLoading = false;
+  String? errorMsg;
+
+  Future<void> submitAuth() async {
+    setState(() {
+      isLoading = true;
+      errorMsg = null;
+    });
+    try {
+      final email = emailController.text.trim();
+      final password = passwordController.text.trim();
+
+      if (isLoginMode) {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      } else {
+        await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        errorMsg = e.message ?? '인증 오류가 발생했습니다.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('한국 공휴일 메모장 - 로그인'),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+      ),
+      body: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 400),
+          padding: const EdgeInsets.all(24),
+          child: Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.calendar_month, size: 56, color: Colors.indigo),
+                  const SizedBox(height: 12),
+                  Text(
+                    isLoginMode ? '로그인' : '회원가입',
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: emailController,
+                    decoration: const InputDecoration(
+                      labelText: '이메일 (예: test@test.com)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: passwordController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: '비밀번호 (6자리 이상)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (errorMsg != null) ...[
+                    const SizedBox(height: 12),
+                    Text(errorMsg!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                  ],
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 45,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.indigo,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: isLoading ? null : submitAuth,
+                      child: isLoading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : Text(isLoginMode ? '로그인' : '회원가입 완료'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        isLoginMode = !isLoginMode;
+                        errorMsg = null;
+                      });
+                    },
+                    child: Text(isLoginMode
+                        ? '계정이 없으신가요? 회원가입'
+                        : '이미 계정이 있으신가요? 로그인'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class HolidayMemoPage extends StatefulWidget {
@@ -144,13 +288,27 @@ class _HolidayMemoPageState extends State<HolidayMemoPage> {
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid ?? 'guest';
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('한국 공휴일 달력 & 나만의 한 줄 메모장'),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
+        actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: Text(user?.email ?? '', style: const TextStyle(fontSize: 13)),
+            ),
+          ),
+          IconButton(
+            tooltip: '로그아웃',
+            icon: const Icon(Icons.logout),
+            onPressed: () => FirebaseAuth.instance.signOut(),
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
